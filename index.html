@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f7f8fa" />
+  <title>KBM · Teacher workspace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3/lib/msal-browser.min.js"></script>
+  <script src="config.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#teaching" aria-label="KBM home"><span class="brand-mark">k</span><span>kbm<span class="brand-dot">.</span></span></a>
+      <div class="workspace-label">WORKSPACE <span class="demo-badge">DEMO</span></div>
+      <div class="school-switch"><span class="school-icon">N</span><span><b>Northbridge Academy</b><small>Teacher workspace</small></span><span class="chevron">⌄</span></div>
+      <div class="nav-label">TEACHING</div>
+      <nav class="main-nav" aria-label="Main navigation">
+        <button class="nav-item active" data-page="teaching"><span class="nav-icon">◷</span>Teaching<span class="nav-current"></span></button>
+        <button class="nav-item" data-page="prepare"><span class="nav-icon">✳</span>Prepare<span class="nav-count">1</span></button>
+        <button class="nav-item" data-page="classes"><span class="nav-icon">▦</span>Classes</button>
+        <button class="nav-item" data-page="library"><span class="nav-icon">▤</span>Library</button>
+        <button class="nav-item" data-page="assignments"><span class="nav-icon">☷</span>Assignments<span class="nav-count">8</span></button>
+      </nav>
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-note"><span class="note-icon">✧</span><div><b>Your next step, made clear.</b><p>KBM turns class signals into practical teaching choices.</p></div></div>
+      <button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span>Settings</button>
+      <div class="profile"><div class="avatar">SC</div><span><b>Sarah Collins</b><small>Mathematics teacher</small></span><button class="more-btn" aria-label="Profile options">···</button></div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar"><button class="mobile-menu" id="mobile-menu" aria-label="Open navigation">☰</button><div class="breadcrumbs"><span>Teacher workspace</span><span class="crumb-sep">/</span><b id="crumb-current">Teaching</b></div><div class="top-actions"><span class="today-date" id="today-date"></span><button class="icon-button" title="Notifications" aria-label="Notifications">♧<i></i></button><div class="top-avatar">SC</div></div></header>
+      <div class="demo-banner"><span class="demo-dot"></span><b>Demo workspace</b><span>Sample classes and learning data are shown. Connect your school account in Settings to get started.</span><button id="banner-connect">Connect account <span>↗</span></button></div>
+
+      <div class="page-content" id="page-content" aria-live="polite"></div>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <div id="modal-root"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
