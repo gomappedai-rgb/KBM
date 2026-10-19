@@ -31,4 +31,5 @@ document.addEventListener("click", async event => {
     alert(/403|permission|access/i.test(message) ? "Google denied access. Check that the Classroom API is enabled, the OAuth scopes are allowed, and this teacher account can use the app." : message);
   } finally { busy = false; updateRow(); }
 }, true);
-new MutationObserver(updateRow).observe(document.getElementById("page-content") || document.body, {childList:true,subtree:true});
+const pageContent = document.getElementById("page-content");
+new MutationObserver(updateRow).observe(pageContent || document.body, {childList:true});
