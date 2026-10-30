@@ -23,7 +23,28 @@ If you enable Microsoft sign-in, add `https://gomappedai-rgb.github.io/KBM/` as 
 3. Put the app's client ID and tenant ID in `config.js`.
 4. Run the local server and connect from Settings.
 
-Without a client ID, the Connect account actions explain the setup requirement. The remaining Google Classroom connection is a placeholder. Data shown in the teacher workspace is illustrative, not connected to a school's records.
+Without a client ID, the Connect account actions explain the setup requirement. Data shown in the teacher workspace is illustrative, not connected to a school's records.
+
+## Google Drive lesson files
+
+**Lessons** (sidebar) lists the course plan: Cracking Chemistry Chapter 6 (Atomic Theory, 6.1–6.5) and Chapter 9 (Shapes of Molecules & Intermolecular Forces, 9.1–9.4), defined in `lessons.js`.
+
+1. Click **Choose Google Drive folder** (on Lessons, Library or Settings). Sign in with Google and allow read-only Drive access.
+2. Browse My Drive, Shared with me or a shared drive, open the folder with the lesson PDFs, and click **Use this folder**.
+3. KBM reads the files in that folder and up to three levels of subfolders. It matches each one to a lesson using:
+   - **Lesson codes** such as `6.4` or `9-3`, or "Chapter 9 / Lesson 2".
+   - **Chapter titles**: a file such as `Ch9 Shapes of Molecules & Intermolecular Forces.pdf` becomes a whole-chapter file, shown in every lesson of that chapter.
+   - **Topic keywords** such as isotopes, VSEPR, hydrogen bonding. The file name counts more than the folder name.
+4. Files that don't match are listed under **Files not linked to a lesson**, where you pick a lesson from the dropdown. Use **＋ Link file** or **×** on a lesson page to change links. Links you set by hand are kept when you click **Rescan**.
+5. Each lesson page shows its files with **Open PDF** (opens in Google Drive) and **Preview** (built-in viewer). The Prepare page and today's class cards link to the same files.
+
+The file list and links are saved in this browser only (`localStorage`). The Drive access token stays in memory, and nothing in Drive is changed.
+
+**Google Cloud setup (once, for the OAuth client in `config.js` → `googleClientId`):**
+- **Enable the Google Drive API:** APIs & Services → Library → **Google Drive API** → Enable.
+- **Add the Drive scope:** OAuth consent screen → Data access → add `https://www.googleapis.com/auth/drive.readonly`.
+- **Allow the site addresses:** the OAuth client's **Authorized JavaScript origins** must include `http://localhost:8080` and `https://gomappedai-rgb.github.io`.
+- **Test users or verification:** `drive.readonly` is a restricted scope. While the app's publishing status is **Testing**, add each teacher's Google account under **Test users**. Opening the app to everyone requires Google's app verification.
 
 ## Scope
 
