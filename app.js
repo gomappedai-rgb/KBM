@@ -1,6 +1,7 @@
 import { createGraphClient, friendlyError } from "./graph.js";
 import { createDriveClient } from "./drive.js";
-import { CHAPTERS, lessonById, chapterById, isTarget, targetLabel, loadLibrary, saveLibrary, buildLibrary, setLink, filesForLesson, chapterFiles, unassignedFiles, PDF } from "./lessons.js";
+import { CHAPTERS, lessonById, chapterById, isTarget, targetLabel, loadLibrary, saveLibrary, buildLibrary, setLink, filesForLesson, chapterFiles, unassignedFiles, setChapterLessons, resetChapter, PDF } from "./lessons.js";
+import { extractSections } from "./pdf-sections.js";
 
 const graph = createGraphClient(window.APP_CONFIG);
 const drive = createDriveClient(window.APP_CONFIG);
@@ -42,7 +43,7 @@ function renderTeaching() {
     <div class="overview-row"><div class="mini-stat"><span class="stat-icon lilac">▣</span><div><small>CLASSES TODAY</small><b>3 <span>classes</span></b></div><span class="stat-note">Next at 9:15</span></div><div class="mini-stat"><span class="stat-icon mint">☷</span><div><small>TO REVIEW</small><b>8 <span>submissions</span></b></div><span class="stat-note positive">3 need attention</span></div><div class="mini-stat"><span class="stat-icon peach">▤</span><div><small>RESOURCE LIBRARY</small><b>${state.resources.filter(r=>r.status==='Approved').length} <span>approved</span></b></div><span class="stat-note">1 needs review</span></div></div>
     ${action}<div class="section-head"><div><h2>Today’s classes</h2><p>Your teaching schedule at a glance.</p></div><button class="subtle-link" data-page="classes">All classes <span>→</span></button></div><div class="class-cards">${classCard("09:15", "12A Chemistry", "Ch 9 · Shapes of molecules (VSEPR)", "28 students", "Next up", true, "9.1")}${classCard("11:00", "12B Chemistry", "Ch 9 · Intermolecular forces", "30 students", "In 2 hours", false, "9.3")}${classCard("13:30", "11C Chemistry", "Ch 6 · Electron configuration", "26 students", "This afternoon", false, "6.4")}</div>`;
 }
-function classCard(time, name, topic, count, status, active, lessonId) { const pdf=filesForLesson(driveLib,lessonId).find(isPdf); return `<article class="class-card ${active?"class-next":""}"><div class="class-time">${time}<span>${active?"NEXT UP":"TODAY"}</span></div><div class="class-card-body"><div class="class-card-title"><b>${name}</b>${active?tag("Next up","purple"):""}</div><p>${topic} · <button class="lesson-link" data-action="open-lesson" data-lesson="${lessonId}">Lesson ${lessonId}</button></p><span class="class-students">♙ ${count}</span></div>${pdf?`<a class="pdf-chip" href="${esc(pdf.webViewLink)}" target="_blank" rel="noopener" title="Open ${esc(pdf.name)}">PDF ↗</a>`:""}<button class="arrow-button" data-action="open-class" data-class="${name}" aria-label="Open ${name}">↗</button></article>`; }
+function classCard(time, name, topic, count, status, active, lessonId) { const pdf=filesForLesson(driveLib,lessonId).find(isPdf), lesson=lessonById(lessonId); if(lesson) topic=`Ch ${lesson.chapter} · ${esc(lesson.title)}`; return `<article class="class-card ${active?"class-next":""}"><div class="class-time">${time}<span>${active?"NEXT UP":"TODAY"}</span></div><div class="class-card-body"><div class="class-card-title"><b>${name}</b>${active?tag("Next up","purple"):""}</div><p>${topic} · <button class="lesson-link" data-action="open-lesson" data-lesson="${lessonId}">Lesson ${lessonId}</button></p><span class="class-students">♙ ${count}</span></div>${pdf?`<a class="pdf-chip" href="${esc(pdf.webViewLink)}" target="_blank" rel="noopener" title="Open ${esc(pdf.name)}">PDF ↗</a>`:""}<button class="arrow-button" data-action="open-class" data-class="${name}" aria-label="Open ${name}">↗</button></article>`; }
 function renderPublished() { return `${topTitle("PUBLISHED", "You’re all set, Sarah", "Your approved lesson is now available to students.")}<div class="success-card"><div class="success-icon">✓</div><div><h2>Shapes of molecules (VSEPR) is published</h2><p>12A Chemistry · Today · 50 minutes</p><div class="success-meta"><span>28 student tasks created</span><span>4 approved resources included</span></div></div><button class="btn btn-secondary" data-page="assignments">View assignments →</button></div><div class="section-head"><div><h2>What happens next</h2><p>Student work will feed into your next teaching decision.</p></div></div><div class="next-steps"><div><span>01</span><b>Students complete the lesson</b><p>They’ll see the materials and tasks you approved.</p></div><div><span>02</span><b>Results update class signals</b><p>Submissions refresh topic accuracy and class summary.</p></div><div><span>03</span><b>Your next lesson adapts</b><p>KBM prepares a new suggestion for your review.</p></div></div>`; }
 function renderPrepare() {
  return `${topTitle("LESSON PREPARATION", "Review your next lesson", "Everything in one place. Make it yours, then approve when you’re ready.", `<button class="btn btn-secondary" data-page="teaching">← Back to teaching</button>`)}<div class="prepare-layout"><section class="panel lesson-panel"><div class="panel-header"><div><span class="eyebrow">12A CHEMISTRY · TODAY</span><h2>Shapes of molecules (VSEPR)</h2></div>${tag("Suggested","purple")}</div><div class="why-inline"><span>✧</span><p><b>Why this lesson?</b> 8 students missed bond angle questions in the last homework. Topic accuracy is 54%, so a focused recap may help before moving on to intermolecular forces.</p></div><div class="field-row"><label>Teaching objective<textarea id="lesson-objective" rows="2">Use VSEPR theory to predict the shapes and bond angles of molecules and ions, including the effect of lone pairs (Cracking Chemistry, Chapter 9).</textarea></label></div><div class="lesson-section"><div class="lesson-section-head"><div><h3>Lesson materials</h3><small>Approved resources only</small></div><button class="small-add" data-action="add-resource">＋ Add</button></div><div class="editable-row"><span class="drag">⠿</span><span class="material-chip">▧</span><div><b>Shapes of molecules (VSEPR) · worked examples</b><small>Core resource · 12 slides</small></div>${tag("Core","neutral")}<button class="remove-row" title="Remove">×</button></div><div class="editable-row"><span class="drag">⠿</span><span class="material-chip mint-bg">▤</span><div><b>Lone pairs &amp; bond angles: common misconceptions</b><small>Supplementary slides · 6 slides</small></div>${tag("Support","mint")}<button class="remove-row" title="Remove">×</button></div>${driveMaterials(SUGGESTED_LESSON)}</div><div class="lesson-section"><div class="lesson-section-head"><div><h3>Class questions</h3><small>Choose questions for this lesson</small></div><button class="small-add" data-action="add-question">＋ Add question</button></div><div class="question-row"><span class="question-number">01</span><span><b>Predict the shape and bond angle of CH₄</b><small>Retrieval · 2 min</small></span><button class="remove-row">×</button></div><div class="question-row"><span class="question-number">02</span><span><b>Explain why the H–N–H bond angle in NH₃ is 107°, not 109.5°</b><small>Guided practice · 3 min</small></span><button class="remove-row">×</button></div></div><div class="lesson-section"><div class="lesson-section-head"><div><h3>Homework</h3><small>One task for every student</small></div><label class="toggle"><input type="checkbox" checked><span></span></label></div><div class="homework-box"><div><b>Shapes of molecules · exit ticket</b><small>8 questions · estimated 10 minutes</small></div><div class="homework-options"><label>Due date <input type="date" value="2026-10-16"></label><label>Required <select><option>Required</option><option>Optional</option></select></label></div></div></div><div class="lesson-section"><div class="lesson-section-head"><div><h3>Extra practice</h3><small>Suggested from individual topic results</small></div></div><div class="practice-students"><div class="student-mini"><div class="avatar small-avatar">AH</div><span><b>Amelia Hart</b><small>Shapes of molecules · 4/8 correct</small></span><label class="toggle"><input type="checkbox" checked><span></span></label></div><div class="student-mini"><div class="avatar small-avatar">OC</div><span><b>Oliver Chen</b><small>Shapes of molecules · 5/8 correct</small></span><label class="toggle"><input type="checkbox" checked><span></span></label></div><div class="student-mini"><div class="avatar small-avatar">LP</div><span><b>Leo Patel</b><small>Shapes of molecules · 4/8 correct</small></span><label class="toggle"><input type="checkbox"><span></span></label></div></div></div><div class="prepare-footer"><span>Last saved just now</span><button class="btn btn-secondary" data-action="save-plan">Save draft</button><button class="btn btn-primary" data-action="approve">Approve &amp; publish <span>→</span></button></div></section><aside class="prepare-aside"><div class="panel side-panel"><div class="aside-icon">✧</div><h3>Decision signals</h3><p>These signals shaped this recommendation.</p><div class="aside-signal"><b>54%</b><span>Shapes of molecules accuracy<br><small>Across 12A · last 2 assignments</small></span></div><div class="aside-signal"><b>8</b><span>Students missed a key step<br><small>Most common: not counting lone pairs</small></span></div><div class="aside-signal"><b>2 days</b><span>Since last chemistry lesson<br><small>Ch 6 · Electron configuration</small></span></div><button class="text-button" data-action="why">See all signals ↗</button></div><div class="privacy-note"><span>▣</span><p><b>Your approval is the only way forward.</b><br>Students see only lessons you approve and publish.</p></div></aside></div>`;
@@ -96,7 +97,9 @@ function driveStatus() {
   return `<div class="panel drive-status"><span class="platform-logo drive-logo">▲</span><div class="connection-copy"><b>${esc(driveLib.folder.path || driveLib.folder.name)}</b><small>${driveLib.files.length} files · ${linked} linked to lessons · read ${new Date(driveLib.scannedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</small></div><button class="btn btn-secondary" data-action="drive-rescan">↻ Rescan</button><button class="btn btn-secondary" data-action="drive-connect">Change folder</button></div>`;
 }
 function renderLessons() {
-  const chapters = CHAPTERS.map((c) => { const whole = chapterFiles(driveLib, c.id); return `<section class="panel chapter-panel"><div class="panel-header"><div><span class="eyebrow">CHAPTER ${c.number}</span><h2>${esc(c.title)}</h2></div>${tag(`${c.lessons.length} lessons`, "neutral")}</div>${whole.length ? `<div class="drive-group"><small>WHOLE-CHAPTER FILES · SHOWN IN EVERY LESSON</small>${whole.map((f) => fileRow(f, { assign: true })).join("")}</div>` : ""}${c.lessons.map((l) => {
+  const chapters = CHAPTERS.map((c) => { const whole = chapterFiles(driveLib, c.id), wholePdf = whole.find(isPdf), busy = syncing === c.id;
+    const source = c.source ? `<p class="plan-source">${c.source.manual ? "Lesson names edited by you" : `Lesson names from “${esc(c.source.name)}”`} · <button class="text-button" data-action="reset-chapter" data-chapter="${c.id}">Reset to defaults</button></p>` : "";
+    return `<section class="panel chapter-panel"><div class="panel-header"><div><span class="eyebrow">CHAPTER ${c.number}</span><h2>${esc(c.title)}</h2>${source}</div><div class="chapter-actions">${tag(`${c.lessons.length} lessons`, "neutral")}${wholePdf ? `<button class="btn btn-secondary" data-action="sync-chapter" data-chapter="${c.id}" ${busy ? "disabled" : ""}>${busy ? "Reading PDF…" : "↻ Names from PDF"}</button>` : ""}<button class="btn btn-secondary" data-action="edit-chapter" data-chapter="${c.id}">✎ Edit names</button></div></div>${whole.length ? `<div class="drive-group"><small>WHOLE-CHAPTER FILES · SHOWN IN EVERY LESSON</small>${whole.map((f) => fileRow(f, { assign: true })).join("")}</div>` : ""}${c.lessons.map((l) => {
     const files = filesForLesson(driveLib, l.id).filter((f) => driveLib.map[f.id] === l.id), pdf = files.find(isPdf);
     return `<div class="lesson-row"><span class="lesson-code">${l.id}</span><div class="lesson-row-copy"><b>${esc(l.title)}</b><small>${files.length ? `${files.length} file${files.length > 1 ? "s" : ""} · ${esc(files.map((f) => f.name).join(", "))}` : whole.length ? "Chapter files only" : "No files linked"}</small></div>${pdf ? `<a class="btn btn-secondary" href="${esc(pdf.webViewLink)}" target="_blank" rel="noopener">Open PDF ↗</a>` : ""}<button class="btn btn-secondary" data-action="open-lesson" data-lesson="${l.id}">View lesson →</button></div>`;
   }).join("")}</section>`; }).join("");
@@ -105,7 +108,8 @@ function renderLessons() {
   return `${topTitle("COURSE PLAN · CRACKING CHEMISTRY", "Lessons", "Chapter 6 and Chapter 9, with the PDFs from your Google Drive folder linked to each lesson.")}${driveStatus()}<div class="lessons-grid">${chapters}${unassigned}</div>`;
 }
 function renderLesson() {
-  const l = lessonById(state.lessonId) || lessonById(SUGGESTED_LESSON);
+  // The lesson may no longer exist after its chapter's names were updated: fall back to that chapter's first lesson.
+  const l = lessonById(state.lessonId) || CHAPTERS.find((c) => state.lessonId?.startsWith(`${c.number}.`))?.lessons.map((x) => lessonById(x.id))[0] || lessonById(SUGGESTED_LESSON) || lessonById(CHAPTERS[0].lessons[0].id);
   const files = filesForLesson(driveLib, l.id);
   const viewing = files.find((f) => f.id === state.viewFileId && isPdf(f)) || files.find(isPdf);
   const all = CHAPTERS.flatMap((c) => c.lessons), i = all.findIndex((x) => x.id === l.id), prev = all[i - 1], next = all[i + 1];
@@ -169,7 +173,62 @@ async function scanFolder(folder) {
     const linked = files.length - unassignedFiles(driveLib).length;
     if (state.page !== "lesson") go("lessons"); else render();
     toast(files.length ? `${files.length} files found · ${linked} matched to lessons.` : "That folder has no files.");
+    await autoSyncChapters();
   } catch (e) { toast(e.message); }
+}
+
+// ---------- lesson names from a chapter PDF ----------
+
+let syncing = null; // chapter id being read
+// Read the numbered sections of a chapter PDF and use them as that chapter's lessons.
+async function syncChapterFromPdf(chapterId, file) {
+  const c = chapterById(chapterId);
+  if (!c || !file || !drive || syncing) return false;
+  syncing = chapterId; render();
+  toast(`Reading lesson names from “${file.name}”…`);
+  try {
+    const sections = await extractSections(await drive.download(file.id), c.number);
+    if (!sections.length) { toast(`No numbered sections (${c.number}.1, ${c.number}.2 …) found in “${file.name}”. Use Edit names to set them.`); return false; }
+    setChapterLessons(chapterId, sections.map((s) => ({ id: `${c.number}.${s.n}`, title: s.title })), { fileId: file.id, name: file.name });
+    // Lesson names changed, so re-match the files that weren't linked by hand.
+    driveLib = buildLibrary(driveLib.folder, driveLib.files, driveLib);
+    saveLibrary(driveLib);
+    toast(`Chapter ${c.number}: ${sections.length} lesson names updated from “${file.name}”.`);
+    return true;
+  } catch (e) { toast(`Could not read “${file.name}”: ${e.message}`); return false; }
+  finally { syncing = null; render(); }
+}
+// After a scan: chapters with a whole-chapter PDF that hasn't been read yet get their names from it.
+async function autoSyncChapters() {
+  for (const c of CHAPTERS) {
+    const pdf = chapterFiles(driveLib, c.id).find(isPdf);
+    if (pdf && !c.source?.manual && c.source?.fileId !== pdf.id) await syncChapterFromPdf(c.id, pdf);
+  }
+}
+function editChapterModal(chapterId) {
+  const c = chapterById(chapterId);
+  const text = c.lessons.map((l) => `${l.id} ${l.title}`).join("\n");
+  $("#modal-root").innerHTML = `<div class="modal-backdrop" data-close><section class="modal" role="dialog" aria-modal="true" aria-label="Edit lesson names"><button class="modal-close" data-close>×</button><div class="eyebrow">CHAPTER ${c.number} · ${esc(c.title.toUpperCase())}</div><h2>Edit lesson names</h2><p class="modal-intro">One lesson per line, starting with its number, e.g. <b>${c.number}.1 ${esc(c.lessons[0]?.title || "Lesson name")}</b>. Add or remove lines to change the number of lessons.</p><label class="feedback-label">Lessons<textarea id="lesson-names" rows="8" spellcheck="false">${esc(text)}</textarea></label><p class="modal-error" id="lesson-names-error" hidden></p><div class="modal-actions"><button class="btn btn-secondary" data-close>Cancel</button><button class="btn btn-primary" data-save>Save names</button></div></section></div>`;
+  const root = $("#modal-root");
+  root.querySelectorAll("[data-close]").forEach((el) => el.addEventListener("click", (e) => { if (e.target === el) closeModal(); }));
+  root.querySelector("[data-save]").addEventListener("click", () => {
+    const seen = new Set(), lessons = [];
+    for (const raw of $("#lesson-names").value.split("\n")) {
+      const line = raw.trim();
+      if (!line) continue;
+      const m = line.match(/^(\d{1,2})\s*\.\s*(\d{1,2})\s*[:.)\-–—]?\s+(.+)$/);
+      if (!m || +m[1] !== c.number) return showError(`“${line}” should start with ${c.number}.1, ${c.number}.2 …`);
+      const id = `${+m[1]}.${+m[2]}`;
+      if (seen.has(id)) return showError(`${id} appears twice.`);
+      seen.add(id); lessons.push({ id, title: m[3].trim() });
+    }
+    if (!lessons.length) return showError("Add at least one lesson.");
+    lessons.sort((a, b) => +a.id.split(".")[1] - +b.id.split(".")[1]);
+    setChapterLessons(chapterId, lessons, { manual: true });
+    if (driveLib) { driveLib = buildLibrary(driveLib.folder, driveLib.files, driveLib); saveLibrary(driveLib); }
+    closeModal(); render(); toast(`Chapter ${c.number} lesson names saved.`);
+  });
+  function showError(msg) { const e = $("#lesson-names-error"); e.textContent = msg; e.hidden = false; }
 }
 function previewFile(id) {
   const f = driveLib?.files.find((x) => x.id === id);
@@ -224,6 +283,9 @@ function bind(){
   else if(a==="drive-disconnect"){drive?.disconnect();driveLib=null;saveLibrary(null);render();toast("Google Drive folder unlinked from KBM.");}
   else if(a==="open-lesson"){state.lessonId=b.dataset.lesson;state.viewFileId=null;go("lesson");}
   else if(a==="lesson-add-file") linkFileModal(state.lessonId);
+  else if(a==="sync-chapter") syncChapterFromPdf(b.dataset.chapter, chapterFiles(driveLib,b.dataset.chapter).find(isPdf));
+  else if(a==="edit-chapter") editChapterModal(b.dataset.chapter);
+  else if(a==="reset-chapter"){resetChapter(b.dataset.chapter);if(driveLib){driveLib=buildLibrary(driveLib.folder,driveLib.files,driveLib);saveLibrary(driveLib);}render();toast("Lesson names reset to the Cracking Chemistry defaults.");}
   else if(a==="preview-file") previewFile(b.dataset.file);
   else if(a==="unassign-file"){setLink(driveLib,b.dataset.file,"");saveLibrary(driveLib);render();toast("File unlinked. It is listed under Lessons → Files not linked.");}
   else if(a==="disconnect"){try{await graph?.signOut();}catch(e){toast(friendlyError(e)||"Could not disconnect.");}}
@@ -240,7 +302,9 @@ function bind(){
   else if(a==="classroom")toast("Google Classroom connection is coming soon.");
   else if(a==="profile-settings"||a==="notifications")toast("This preference is not available in the demo yet.");
  }));
- document.querySelectorAll("[data-assign]").forEach(s=>s.addEventListener("change",()=>{setLink(driveLib,s.dataset.assign,s.value);saveLibrary(driveLib);render();toast(s.value?`Linked to lesson ${s.value}.`:"File unlinked.");}));
+ document.querySelectorAll("[data-assign]").forEach(s=>s.addEventListener("change",()=>{setLink(driveLib,s.dataset.assign,s.value);saveLibrary(driveLib);render();toast(s.value?`Linked to ${targetLabel(s.value)}.`:"File unlinked.");
+  // Choosing a PDF as the whole-chapter file updates that chapter's lesson names from it.
+  const f=driveLib.files.find(x=>x.id===s.dataset.assign);if(chapterById(s.value)&&f&&isPdf(f))syncChapterFromPdf(s.value,f);}));
  document.querySelectorAll("[data-class-tab]").forEach(b=>b.addEventListener("click",()=>{state.selectedClass=b.dataset.classTab;render();}));
  document.querySelectorAll("[data-task-filter]").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll("[data-task-filter]").forEach(x=>x.classList.toggle("active",x===b));toast(b.dataset.taskFilter==="review"?"Showing submissions to review.":"Assignment list updated.");}));
  document.querySelectorAll(".remove-row").forEach(b=>b.addEventListener("click",()=>{b.closest(".editable-row,.question-row")?.remove();}));

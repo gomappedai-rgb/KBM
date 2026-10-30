@@ -1,7 +1,9 @@
 // Course plan (Cracking Chemistry, Ch 6 & Ch 9) and the mapping of Google Drive files to lessons.
 // The mapping lives in this browser only (localStorage); file contents stay in Google Drive.
 
-export const CHAPTERS = [
+// Default lesson names. A chapter's lessons can be replaced by the sections read from its
+// chapter PDF, or edited by hand (saved under PLAN_KEY).
+const DEFAULT_CHAPTERS = [
   {
     id: "ch6", number: 6, title: "Atomic Theory",
     lessons: [
@@ -26,7 +28,47 @@ export const CHAPTERS = [
 // Phrases that name a whole chapter (every phrase in one group must appear).
 const CHAPTER_TITLES = { 6: [["atomic theory"], ["atom theory"]], 9: [["shapes of molecules", "intermolecular"]] };
 
-export const LESSONS = CHAPTERS.flatMap((c) => c.lessons.map((l) => ({ ...l, chapter: c.number, chapterTitle: c.title })));
+// ---------- effective course plan (defaults + per-chapter overrides) ----------
+const PLAN_KEY = "kbm.coursePlan";
+const STOPWORDS = new Set(["the", "and", "of", "in", "a", "an", "to", "for", "with", "on", "its", "their", "how", "what", "why", "from", "into", "between", "by", "or", "is", "are"]);
+
+function loadOverrides() {
+  try { return JSON.parse(localStorage.getItem(PLAN_KEY)) || {}; } catch { return {}; }
+}
+
+// Matching keywords for a lesson name: the whole name as a phrase plus its significant words.
+export function keywordsFromTitle(title) {
+  const phrase = title.toLowerCase().replace(/[^a-z0-9\s-]+/g, " ").replace(/\s+/g, " ").trim();
+  const words = phrase.split(" ").filter((w) => w.length >= 4 && !STOPWORDS.has(w));
+  return [...new Set([phrase, ...words])];
+}
+
+export let CHAPTERS = [];
+export let LESSONS = [];
+function rebuild() {
+  const o = loadOverrides();
+  CHAPTERS = DEFAULT_CHAPTERS.map((c) => o[c.id]?.lessons?.length
+    ? { ...c, lessons: o[c.id].lessons.map((l) => ({ id: l.id, title: l.title, keywords: keywordsFromTitle(l.title) })), source: o[c.id].source }
+    : c);
+  LESSONS = CHAPTERS.flatMap((c) => c.lessons.map((l) => ({ ...l, chapter: c.number, chapterTitle: c.title })));
+}
+rebuild();
+
+// Replace a chapter's lessons, e.g. with the sections found in its PDF.
+// lessons: [{ id: "9.1", title }]; source: { fileId, name } or { manual: true }.
+export function setChapterLessons(chapterId, lessons, source) {
+  const o = loadOverrides();
+  o[chapterId] = { lessons: lessons.map((l) => ({ id: l.id, title: l.title })), source: { ...source, at: new Date().toISOString() } };
+  localStorage.setItem(PLAN_KEY, JSON.stringify(o));
+  rebuild();
+}
+export function resetChapter(chapterId) {
+  const o = loadOverrides();
+  delete o[chapterId];
+  localStorage.setItem(PLAN_KEY, JSON.stringify(o));
+  rebuild();
+}
+
 export const lessonById = (id) => LESSONS.find((l) => l.id === id) || null;
 export const chapterById = (id) => CHAPTERS.find((c) => c.id === id) || null;
 // A file is linked either to one lesson ("9.1") or to a whole chapter ("ch9").
@@ -42,11 +84,11 @@ export function suggestLesson(file) {
   const norm = (s) => ` ${(s || "").toLowerCase().replace(/[_]+/g, " ")} `;
   const name = norm(file.name), path = norm(file.path), text = path + name;
   // Explicit lesson code: "6.3", "9-1", "chapter 9 / lesson 4"
-  const code = text.match(/(?:^|[^\d.])([69])\s*[.\-]\s*([1-9])(?![\d.])/);
+  const code = text.match(/(?:^|[^\d.])([69])\s*[.\-]\s*([1-9]\d?)(?![\d.])/);
   if (code && lessonById(`${code[1]}.${code[2]}`)) return `${code[1]}.${code[2]}`;
   const chapIn = (s) => s.match(/\b(?:ch|chap|chapter|unit|topic)\.?\s*0?([69])\b/)?.[1];
   const titleIn = (s) => Object.keys(CHAPTER_TITLES).find((n) => CHAPTER_TITLES[n].some((all) => all.every((k) => s.includes(k))));
-  const num = text.match(/\b(?:lesson|les|l)\.?\s*0?([1-9])\b/);
+  const num = text.match(/\b(?:lesson|les|l)\.?\s*0?([1-9]\d?)\b/);
   const chap = chapIn(text) || titleIn(text);
   if (chap && num && lessonById(`${chap}.${num[1]}`)) return `${chap}.${num[1]}`;
   // A file named after the chapter itself (e.g. "Ch9 Shapes of Molecules & Intermolecular Forces.pdf").

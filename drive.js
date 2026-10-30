@@ -86,6 +86,15 @@ export function createDriveClient(config) {
       return list.map((f) => ({ id: f.id, name: f.name, kind: "folder" }));
     },
 
+    // File contents (e.g. a chapter PDF) as an ArrayBuffer.
+    async download(fileId, maxBytes = 80 * 1024 * 1024) {
+      await ensureToken();
+      const r = await fetch(`${API}/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, { headers: { Authorization: "Bearer " + token } });
+      if (!r.ok) { if (r.status === 401) token = null; throw new Error(`Could not download the file from Google Drive (${r.status}).`); }
+      if (+r.headers.get("content-length") > maxBytes) throw new Error("This PDF is too large to read in the browser.");
+      return r.arrayBuffer();
+    },
+
     // All files in a folder and its subfolders (up to MAX_DEPTH levels), with their relative path.
     async scan(folderId) {
       const files = [];

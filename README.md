@@ -38,7 +38,13 @@ Without a client ID, the Connect account actions explain the setup requirement. 
 4. Files that don't match are listed under **Files not linked to a lesson**, where you pick a lesson from the dropdown. Use **＋ Link file** or **×** on a lesson page to change links. Links you set by hand are kept when you click **Rescan**.
 5. Each lesson page shows its files with **Open PDF** (opens in Google Drive) and **Preview** (built-in viewer). The Prepare page and today's class cards link to the same files.
 
-The file list and links are saved in this browser only (`localStorage`). The Drive access token stays in memory, and nothing in Drive is changed.
+**Lesson names from the chapter PDF.** When a PDF becomes a chapter's whole-chapter file, KBM downloads it from Drive and reads it in the browser with pdf.js (`pdf-sections.js`). This happens automatically after a scan, or when you choose "whole chapter" in a file's dropdown. KBM looks for that chapter's numbered sections, e.g. `9.1 …`, `9.2 …`:
+- It reads the PDF's bookmarks first.
+- Without bookmarks, it reads the page text and uses each section's largest heading, rather than its line on the contents page.
+
+Those sections replace the chapter's lessons, so the number of lessons follows the book, and files are re-matched to the new names. Use **↻ Names from PDF** to read it again, **✎ Edit names** to set them by hand, and **Reset to defaults** to go back to the built-in names. Names you edit by hand are not overwritten by a rescan.
+
+The file list, links and lesson names are saved in this browser only (`localStorage`). The Drive access token stays in memory, and nothing in Drive is changed.
 
 **Google Cloud setup (once, for the OAuth client in `config.js` → `googleClientId`):**
 - **Enable the Google Drive API:** APIs & Services → Library → **Google Drive API** → Enable.
