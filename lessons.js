@@ -30,7 +30,10 @@ const CHAPTER_TITLES = { 6: [["atomic theory"], ["atom theory"]], 9: [["shapes o
 
 // ---------- effective course plan (defaults + per-chapter overrides) ----------
 const PLAN_KEY = "kbm.coursePlan";
-const STOPWORDS = new Set(["the", "and", "of", "in", "a", "an", "to", "for", "with", "on", "its", "their", "how", "what", "why", "from", "into", "between", "by", "or", "is", "are"]);
+const STOPWORDS = new Set(["the", "and", "of", "in", "a", "an", "to", "for", "with", "on", "its", "their", "how", "what", "why", "from", "into", "between", "by", "or", "is", "are", "my", "our", "own",
+  // words that appear in any lesson's file name, so they can't tell lessons apart
+  "lesson", "lessons", "notes", "note", "worksheet", "worksheets", "chapter", "unit", "part", "intro", "introduction", "review", "revision",
+  "practice", "questions", "answers", "homework", "slides", "handout", "summary", "topic", "section", "basics"]);
 
 function loadOverrides() {
   try { return JSON.parse(localStorage.getItem(PLAN_KEY)) || {}; } catch { return {}; }
@@ -78,13 +81,19 @@ export function targetLabel(id) {
   return l ? `${l.id} ${l.title}` : c ? `Ch ${c.number} · whole chapter` : "Not linked";
 }
 
+// A lesson number written in a file name ("6.2", "Lesson 9-5", "9.5.pdf"), whether or not the plan has that lesson.
+export function lessonCodeIn(file) {
+  const m = ` ${file.name} `.toLowerCase().match(/(?:^|[^\d.])([69])\s*[.\-]\s*([1-9]\d?)(?!\d)/);
+  return m ? `${m[1]}.${m[2]}` : "";
+}
+
 // Guess which lesson (or whole chapter) a Drive file belongs to from its name and folder path.
 // The file name counts more than the folder path. Returns "" when nothing matches well enough.
 export function suggestLesson(file) {
   const norm = (s) => ` ${(s || "").toLowerCase().replace(/[_]+/g, " ")} `;
   const name = norm(file.name), path = norm(file.path), text = path + name;
   // Explicit lesson code: "6.3", "9-1", "chapter 9 / lesson 4"
-  const code = text.match(/(?:^|[^\d.])([69])\s*[.\-]\s*([1-9]\d?)(?![\d.])/);
+  const code = text.match(/(?:^|[^\d.])([69])\s*[.\-]\s*([1-9]\d?)(?!\d)/); // "6.1", "6.1.pdf", "6.1.1 …" -> 6.1
   if (code && lessonById(`${code[1]}.${code[2]}`)) return `${code[1]}.${code[2]}`;
   const chapIn = (s) => s.match(/\b(?:ch|chap|chapter|unit|topic)\.?\s*0?([69])\b/)?.[1];
   const titleIn = (s) => Object.keys(CHAPTER_TITLES).find((n) => CHAPTER_TITLES[n].some((all) => all.every((k) => s.includes(k))));
@@ -145,10 +154,12 @@ export function classifyHeadings(sections) {
 const headingTarget = (k) => (!k ? "" : k.kind === "lesson" ? `${k.chapter}.${k.n}` : `ch${k.chapter}`);
 
 // Lesson names for one chapter from the PDFs: the sections of its whole-chapter PDF (else the
-// default lessons), with each lesson PDF's own title put on its lesson number.
+// chapter's current lessons), with each lesson PDF's own
+// title put on its lesson number. A lesson PDF without a numbered heading gives its first-page
+// title to the lesson it is linked to (by its file name or by hand).
 // Returns { lessons, source } or null when no PDF gave a title for this chapter.
 export function planFromPdfs(lib, chapterId) {
-  const c = DEFAULT_CHAPTERS.find((x) => x.id === chapterId);
+  const c = DEFAULT_CHAPTERS.find((x) => x.id === chapterId), current = CHAPTERS.find((x) => x.id === chapterId);
   if (!lib?.headings || !c) return null;
   const read = lib.files
     .filter((f) => lib.headings[f.id]?.sections?.length)
@@ -158,17 +169,41 @@ export function planFromPdfs(lib, chapterId) {
   const whole = read.find((x) => x.k?.kind === "chapter" && x.k.chapter === c.number)
     || read.find((x) => lib.map[x.f.id] === chapterId && x.all.length >= 2);
   const sections = whole ? (whole.k?.kind === "chapter" ? whole.k.sections : whole.all) : null;
-  const singles = read.filter((x) => x !== whole && x.k?.kind === "lesson" && x.k.chapter === c.number);
-  if (!whole && !singles.length) return null;
+  const singles = read.filter((x) => x !== whole && x.k?.kind === "lesson" && x.k.chapter === c.number)
+    .map((x) => ({ f: x.f, id: `${c.number}.${x.k.n}`, title: x.k.title }));
+  // No numbered heading at all, but linked to a lesson of this chapter (or its file name carries a
+  // lesson number such as "Lesson 9.5", even one the plan doesn't have yet): use its first-page title.
+  const numbered = new Set(singles.map((s) => s.id));
+  const untitled = lib.files
+    .filter((f) => !lib.headings[f.id]?.sections?.length && lib.headings[f.id]?.topTitle)
+    .map((f) => ({ f, id: lessonById(lib.map[f.id]) ? lib.map[f.id] : lessonCodeIn(f), title: lib.headings[f.id].topTitle }))
+    .filter((x) => x.id?.startsWith(`${c.number}.`) && !numbered.has(x.id));
+  const titled = [...singles, ...untitled];
+  if (!whole && !titled.length) return null;
 
-  const lessons = sections ? sections.map((s) => ({ id: `${c.number}.${s.n}`, title: s.title })) : c.lessons.map((l) => ({ id: l.id, title: l.title }));
-  for (const { k } of singles) {
-    const id = `${c.number}.${k.n}`, i = lessons.findIndex((l) => l.id === id);
-    if (i >= 0) lessons[i] = { id, title: k.title }; else lessons.push({ id, title: k.title });
+  // Lessons that no PDF names keep their current name (default, hand-edited or from an earlier scan).
+  const lessons = sections ? sections.map((s) => ({ id: `${c.number}.${s.n}`, title: s.title }))
+    : (current || c).lessons.map((l) => ({ id: l.id, title: l.title }));
+  for (const { id, title } of titled) {
+    const i = lessons.findIndex((l) => l.id === id);
+    if (i >= 0) lessons[i] = { id, title }; else lessons.push({ id, title });
   }
   lessons.sort((a, b) => +a.id.split(".")[1] - +b.id.split(".")[1]);
-  const names = [whole && `“${whole.f.name}”`, singles.length && `${singles.length} lesson PDF${singles.length > 1 ? "s" : ""}`].filter(Boolean);
-  return { lessons, source: { name: names.join(" and "), fileIds: [whole?.f.id, ...singles.map((x) => x.f.id)].filter(Boolean) } };
+  const names = [whole && `“${whole.f.name}”`, titled.length && `${titled.length} lesson PDF${titled.length > 1 ? "s" : ""}`].filter(Boolean);
+  return { lessons, source: { name: names.join(" and "), fileIds: [whole?.f.id, ...titled.map((x) => x.f.id)].filter(Boolean) } };
+}
+
+// What the scan found in each PDF, for the scan report: [{ file, found, how, target }].
+export function scanReport(lib) {
+  if (!lib) return [];
+  return lib.files.filter((f) => lib.headings?.[f.id]).map((f) => {
+    const h = lib.headings[f.id], k = classifyHeadings(h.sections);
+    const found = h.error ? "" : k?.kind === "chapter" ? k.sections.map((s) => `${s.chapter}.${s.n} ${s.title}`).join(" · ")
+      : k ? `${k.chapter}.${k.n} ${k.title}` : h.topTitle || "";
+    const how = h.error ? `Could not read: ${h.error}` : k?.kind === "chapter" ? "Whole-chapter PDF (numbered sections)"
+      : k ? "Numbered title" : h.topTitle ? "First-page title (no number)" : "No title found (scanned image?)";
+    return { file: f, found, how, target: lib.map[f.id] };
+  }).sort((a, b) => (a.target || "zz").localeCompare(b.target || "zz", undefined, { numeric: true }) || a.file.name.localeCompare(b.file.name));
 }
 
 // Merge a fresh folder scan with the previous one: keep the links the teacher set by hand and the

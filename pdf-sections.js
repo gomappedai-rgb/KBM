@@ -66,24 +66,41 @@ function flattenOutline(items, out = []) {
 
 const byNumber = (a, b) => a.chapter - b.chapter || a.n - b.n;
 
-// All numbered headings of the given chapters: [{ chapter, n, title, size }], sorted.
+// The largest-font line on the first page, as the title of a PDF whose heading has no number
+// (e.g. "The Bohr Model", or "Lesson 2: The Bohr Model"). Skips book/chapter banners.
+function firstPageTitle(lines) {
+  const candidates = lines
+    .map((l) => ({ ...l, text: cleanTitle(l.text.replace(/^(?:lesson|topic|section|unit)\s*[\d.]+\s*[:.\-–—]?\s*/i, "")) }))
+    .filter((l) => l.text.length >= 3 && l.text.length <= 100 && (l.text.match(/[a-z]/gi) || []).length >= 3)
+    .filter((l) => !/^(chapter\b|ch\.?\s*\d|unit\s*\d|contents\b|cracking chemistry\b|page\s*\d)/i.test(l.text) && !/^\d{1,2}\s*\.\s*\d{1,2}\b/.test(l.text));
+  if (!candidates.length) return "";
+  const top = candidates.reduce((a, b) => (b.size > a.size + 0.5 ? b : a));
+  if (lines.length === 1) return top.text;
+  const body = lines.map((l) => l.size).sort((a, b) => a - b)[Math.floor((lines.length - 1) / 2)];
+  return top.size > body * 1.15 ? top.text : ""; // must stand out from the body text
+}
+
+// Numbered headings of the given chapters, plus the first page's title:
+// { sections: [{ chapter, n, title, size }] (sorted), topTitle }.
 // `size` is the font size of the heading (all 1 when read from bookmarks).
 export async function readHeadings(data, chapters) {
   const pdfjs = await loadPdfJs();
   const pdf = await pdfjs.getDocument({ data, isEvalSupported: false }).promise;
   try {
+    const first = pdf.numPages ? pageLines((await (await pdf.getPage(1)).getTextContent()).items) : [];
+    const topTitle = firstPageTitle(first);
     const fromOutline = new Map();
     for (const t of flattenOutline(await pdf.getOutline().catch(() => null))) {
       const h = parseHeading(t, chapters);
       if (h && !fromOutline.has(`${h.chapter}.${h.n}`)) fromOutline.set(`${h.chapter}.${h.n}`, { ...h, size: 1 });
     }
-    if (fromOutline.size) return [...fromOutline.values()].sort(byNumber);
+    if (fromOutline.size) return { sections: [...fromOutline.values()].sort(byNumber), topTitle };
 
     const best = new Map();
     const pages = Math.min(pdf.numPages, MAX_PAGES);
     for (let p = 1; p <= pages; p++) {
       const page = await pdf.getPage(p);
-      const lines = pageLines((await page.getTextContent()).items);
+      const lines = p === 1 ? first : pageLines((await page.getTextContent()).items);
       lines.forEach((line, i) => {
         let h = parseHeading(line.text, chapters);
         // Number on its own line, title on the next one.
@@ -94,7 +111,7 @@ export async function readHeadings(data, chapters) {
       });
       page.cleanup();
     }
-    return [...best.values()].sort(byNumber);
+    return { sections: [...best.values()].sort(byNumber), topTitle };
   } finally {
     pdf.destroy();
   }

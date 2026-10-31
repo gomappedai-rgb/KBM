@@ -38,12 +38,17 @@ Without a client ID, the Connect account actions explain the setup requirement. 
 4. Files that don't match are listed under **Files not linked to a lesson**, where you pick a lesson from the dropdown. Use **＋ Link file** or **×** on a lesson page to change links. Links you set by hand are kept when you click **Rescan**.
 5. Each lesson page shows its files with **Open PDF** (opens in Google Drive) and **Preview** (built-in viewer). The Prepare page and today's class cards link to the same files.
 
-**Lesson names from the PDFs.** After a scan, KBM downloads every PDF in the folder from Drive and reads it in the browser with pdf.js (`pdf-sections.js`). It looks for numbered headings such as `6.1 …` or `9.2 …`, using the PDF's bookmarks if it has them, otherwise the page text. The headings in a PDF's largest font are its own titles; smaller numbered lines (contents entries, mentions in the text) are ignored. Then (`lessons.js` → `classifyHeadings`, `planFromPdfs`):
-- **A lesson PDF** has one title, e.g. `6.1 The Nuclear Atom`. That title becomes lesson 6.1's name, and the file is linked to 6.1, whatever the file is called.
-- **A whole-chapter PDF** has several titles of one chapter. Its sections become that chapter's lessons, so the number of lessons follows the book. Lesson PDFs' titles then replace the matching sections.
-- **Chapter defaults**: without a chapter PDF, the chapter keeps its default lessons, with names replaced wherever a lesson PDF gave a title.
+**Lesson names from the PDFs: ⟳ Scan PDFs.** The **⟳ Scan PDFs** button at the top of Lessons lists the folder again (choosing one first if none is linked), then reads every PDF in it in the browser with pdf.js (`pdf-sections.js`). For each PDF, KBM looks for:
+- **Numbered headings** such as `6.1 …` or `9.2 …`, from the bookmarks or the page text. The headings in the PDF's largest font are its own titles; smaller numbered lines (contents entries, mentions in the text) are ignored.
+- **The first page's title**: the largest line on page 1, e.g. `The Bohr Model` or `Lesson 2: The Bohr Model`. It's used when the PDF has no numbered heading. Book/chapter banners such as "Cracking Chemistry" or "Chapter 6" are skipped.
 
-Titles already read are kept with the file list, so a **Rescan** only reads new or changed PDFs. Use **↻ Names from PDFs** to read every PDF again, **✎ Edit names** to set names by hand, and **Reset to defaults** to go back to the built-in names. Names you edit by hand are not overwritten by a rescan. Scanned PDFs without a text layer have no readable titles; those files are matched by name.
+Then (`lessons.js` → `classifyHeadings`, `planFromPdfs`):
+- **A PDF with one numbered title**, e.g. `6.2 The Bohr Model`, names lesson 6.2 and is linked to it, whatever the file is called.
+- **A PDF whose title has no number** names the lesson it is linked to by its file name (e.g. `Lesson 6.2.pdf`, `Atomic theory lesson 2.pdf`) or by hand. A number in the file name that the plan doesn't have yet (e.g. `Lesson 9.5.pdf`) adds that lesson.
+- **A whole-chapter PDF** has several numbered titles of one chapter. Its sections become that chapter's lessons, so the number of lessons follows the book; lesson PDFs then rename their own sections.
+- **Lessons no PDF names** keep their current name (default, hand-edited, or from an earlier scan).
+
+After a scan, a **Scan results** table lists each PDF, the title found and how it was found, and the lesson it is linked to, so wrong titles or links are easy to spot and fix. Titles are cached per file: choosing a folder only reads new or changed PDFs, while **⟳ Scan PDFs** re-reads them all and its titles replace names you edited by hand. Use **✎ Edit names** to set names yourself and **Reset to defaults** to go back to the built-in names. Scanned PDFs without a text layer have no readable titles; those files are matched by name.
 
 The file list, links and lesson names are saved in this browser only (`localStorage`). The Drive access token stays in memory, and nothing in Drive is changed.
 
