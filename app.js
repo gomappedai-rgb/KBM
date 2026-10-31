@@ -1,7 +1,7 @@
 import { createGraphClient, friendlyError } from "./graph.js";
 import { createDriveClient } from "./drive.js";
-import { CHAPTERS, lessonById, chapterById, isTarget, targetLabel, loadLibrary, saveLibrary, buildLibrary, setLink, filesForLesson, chapterFiles, unassignedFiles, setChapterLessons, resetChapter, PDF } from "./lessons.js";
-import { extractSections } from "./pdf-sections.js";
+import { CHAPTERS, lessonById, chapterById, isTarget, targetLabel, loadLibrary, saveLibrary, buildLibrary, setLink, filesForLesson, chapterFiles, unassignedFiles, setChapterLessons, resetChapter, planFromPdfs, pdfsToRead, PDF } from "./lessons.js";
+import { readHeadings } from "./pdf-sections.js";
 
 const graph = createGraphClient(window.APP_CONFIG);
 const drive = createDriveClient(window.APP_CONFIG);
@@ -94,12 +94,15 @@ function driveMaterials(lessonId) {
 function driveStatus() {
   if (!driveLib) return `<div class="panel drive-empty"><span class="platform-logo drive-logo">▲</span><div><h2>Link your Google Drive folder</h2><p>Choose the folder with your Cracking Chemistry PDFs. KBM reads the file list (read-only) and matches each file to a lesson by its name and folder. You can change any match.</p></div><button class="btn btn-primary" data-action="drive-connect">Choose Google Drive folder</button></div>`;
   const linked = driveLib.files.length - unassignedFiles(driveLib).length;
-  return `<div class="panel drive-status"><span class="platform-logo drive-logo">▲</span><div class="connection-copy"><b>${esc(driveLib.folder.path || driveLib.folder.name)}</b><small>${driveLib.files.length} files · ${linked} linked to lessons · read ${new Date(driveLib.scannedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</small></div><button class="btn btn-secondary" data-action="drive-rescan">↻ Rescan</button><button class="btn btn-secondary" data-action="drive-connect">Change folder</button></div>`;
+  const titled = Object.values(driveLib.headings || {}).filter((h) => h.sections.length).length;
+  const info = pdfProgress ? `<small class="pdf-progress" id="pdf-progress">Reading titles from PDFs… ${pdfProgress.done} of ${pdfProgress.total}</small>` : `<small>${driveLib.files.length} files · ${linked} linked to lessons · ${titled} PDF title${titled === 1 ? "" : "s"} read · ${new Date(driveLib.scannedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</small>`;
+  return `<div class="panel drive-status"><span class="platform-logo drive-logo">▲</span><div class="connection-copy"><b>${esc(driveLib.folder.path || driveLib.folder.name)}</b>${info}</div><button class="btn btn-secondary" data-action="drive-rescan" ${pdfProgress ? "disabled" : ""}>↻ Rescan</button><button class="btn btn-secondary" data-action="drive-connect" ${pdfProgress ? "disabled" : ""}>Change folder</button></div>`;
 }
 function renderLessons() {
-  const chapters = CHAPTERS.map((c) => { const whole = chapterFiles(driveLib, c.id), wholePdf = whole.find(isPdf), busy = syncing === c.id;
-    const source = c.source ? `<p class="plan-source">${c.source.manual ? "Lesson names edited by you" : `Lesson names from “${esc(c.source.name)}”`} · <button class="text-button" data-action="reset-chapter" data-chapter="${c.id}">Reset to defaults</button></p>` : "";
-    return `<section class="panel chapter-panel"><div class="panel-header"><div><span class="eyebrow">CHAPTER ${c.number}</span><h2>${esc(c.title)}</h2>${source}</div><div class="chapter-actions">${tag(`${c.lessons.length} lessons`, "neutral")}${wholePdf ? `<button class="btn btn-secondary" data-action="sync-chapter" data-chapter="${c.id}" ${busy ? "disabled" : ""}>${busy ? "Reading PDF…" : "↻ Names from PDF"}</button>` : ""}<button class="btn btn-secondary" data-action="edit-chapter" data-chapter="${c.id}">✎ Edit names</button></div></div>${whole.length ? `<div class="drive-group"><small>WHOLE-CHAPTER FILES · SHOWN IN EVERY LESSON</small>${whole.map((f) => fileRow(f, { assign: true })).join("")}</div>` : ""}${c.lessons.map((l) => {
+  const hasPdfs = !!driveLib?.files.some(isPdf);
+  const chapters = CHAPTERS.map((c) => { const whole = chapterFiles(driveLib, c.id);
+    const source = c.source ? `<p class="plan-source">${c.source.manual ? "Lesson names edited by you" : `Lesson names from ${esc(c.source.name)}`} · <button class="text-button" data-action="reset-chapter" data-chapter="${c.id}">Reset to defaults</button></p>` : "";
+    return `<section class="panel chapter-panel"><div class="panel-header"><div><span class="eyebrow">CHAPTER ${c.number}</span><h2>${esc(c.title)}</h2>${source}</div><div class="chapter-actions">${tag(`${c.lessons.length} lessons`, "neutral")}${hasPdfs ? `<button class="btn btn-secondary" data-action="sync-chapter" data-chapter="${c.id}" ${pdfProgress ? "disabled" : ""}>${pdfProgress ? "Reading PDFs…" : "↻ Names from PDFs"}</button>` : ""}<button class="btn btn-secondary" data-action="edit-chapter" data-chapter="${c.id}">✎ Edit names</button></div></div>${whole.length ? `<div class="drive-group"><small>WHOLE-CHAPTER FILES · SHOWN IN EVERY LESSON</small>${whole.map((f) => fileRow(f, { assign: true })).join("")}</div>` : ""}${c.lessons.map((l) => {
     const files = filesForLesson(driveLib, l.id).filter((f) => driveLib.map[f.id] === l.id), pdf = files.find(isPdf);
     return `<div class="lesson-row"><span class="lesson-code">${l.id}</span><div class="lesson-row-copy"><b>${esc(l.title)}</b><small>${files.length ? `${files.length} file${files.length > 1 ? "s" : ""} · ${esc(files.map((f) => f.name).join(", "))}` : whole.length ? "Chapter files only" : "No files linked"}</small></div>${pdf ? `<a class="btn btn-secondary" href="${esc(pdf.webViewLink)}" target="_blank" rel="noopener">Open PDF ↗</a>` : ""}<button class="btn btn-secondary" data-action="open-lesson" data-lesson="${l.id}">View lesson →</button></div>`;
   }).join("")}</section>`; }).join("");
@@ -173,37 +176,54 @@ async function scanFolder(folder) {
     const linked = files.length - unassignedFiles(driveLib).length;
     if (state.page !== "lesson") go("lessons"); else render();
     toast(files.length ? `${files.length} files found · ${linked} matched to lessons.` : "That folder has no files.");
-    await autoSyncChapters();
+    await readPdfTitles();
   } catch (e) { toast(e.message); }
 }
 
-// ---------- lesson names from a chapter PDF ----------
+// ---------- lesson names from the PDFs ----------
 
-let syncing = null; // chapter id being read
-// Read the numbered sections of a chapter PDF and use them as that chapter's lessons.
-async function syncChapterFromPdf(chapterId, file) {
-  const c = chapterById(chapterId);
-  if (!c || !file || !drive || syncing) return false;
-  syncing = chapterId; render();
-  toast(`Reading lesson names from “${file.name}”…`);
-  try {
-    const sections = await extractSections(await drive.download(file.id), c.number);
-    if (!sections.length) { toast(`No numbered sections (${c.number}.1, ${c.number}.2 …) found in “${file.name}”. Use Edit names to set them.`); return false; }
-    setChapterLessons(chapterId, sections.map((s) => ({ id: `${c.number}.${s.n}`, title: s.title })), { fileId: file.id, name: file.name });
-    // Lesson names changed, so re-match the files that weren't linked by hand.
-    driveLib = buildLibrary(driveLib.folder, driveLib.files, driveLib);
-    saveLibrary(driveLib);
-    toast(`Chapter ${c.number}: ${sections.length} lesson names updated from “${file.name}”.`);
-    return true;
-  } catch (e) { toast(`Could not read “${file.name}”: ${e.message}`); return false; }
-  finally { syncing = null; render(); }
-}
-// After a scan: chapters with a whole-chapter PDF that hasn't been read yet get their names from it.
-async function autoSyncChapters() {
-  for (const c of CHAPTERS) {
-    const pdf = chapterFiles(driveLib, c.id).find(isPdf);
-    if (pdf && !c.source?.manual && c.source?.fileId !== pdf.id) await syncChapterFromPdf(c.id, pdf);
+let pdfProgress = null; // { done, total } while PDFs are being read
+// Read the numbered headings of every PDF in the folder that hasn't been read yet (or changed),
+// then use them for the lesson names and links. `force` re-reads all PDFs; `chapters` are chapter
+// ids whose hand-edited names may be replaced.
+async function readPdfTitles({ force = false, chapters = [] } = {}) {
+  if (!driveLib || !drive || pdfProgress) return;
+  const todo = pdfsToRead(driveLib, force);
+  if (todo.length) {
+    pdfProgress = { done: 0, total: todo.length }; render();
+    driveLib.headings ||= {};
+    let failed = 0;
+    for (const f of todo) {
+      try {
+        driveLib.headings[f.id] = { modifiedTime: f.modifiedTime, sections: await readHeadings(await drive.download(f.id), CHAPTERS.map((c) => c.number)) };
+      } catch (e) {
+        failed++;
+        driveLib.headings[f.id] = { modifiedTime: f.modifiedTime, sections: [], error: e.message };
+      }
+      pdfProgress.done++;
+      const el = $("#pdf-progress"); if (el) el.textContent = `Reading titles from PDFs… ${pdfProgress.done} of ${pdfProgress.total}`;
+    }
+    pdfProgress = null;
+    if (failed) toast(`${failed} PDF${failed > 1 ? "s" : ""} could not be read (scanned images or download errors).`);
   }
+  applyPdfTitles(chapters);
+}
+// Lesson names from the PDF titles (chapters edited by hand keep their names unless listed in
+// `force`), then re-match every file that wasn't linked by hand.
+function applyPdfTitles(force = []) {
+  const updated = [];
+  const names = (id) => JSON.stringify(chapterById(id).lessons.map((l) => [l.id, l.title]));
+  for (const c of CHAPTERS) {
+    if (c.source?.manual && !force.includes(c.id)) continue;
+    const plan = planFromPdfs(driveLib, c.id), before = names(c.id);
+    if (plan) setChapterLessons(c.id, plan.lessons, plan.source);
+    else if (c.source) resetChapter(c.id); // its PDFs are gone: back to the defaults
+    if (names(c.id) !== before) updated.push(`Ch ${c.number}: ${chapterById(c.id).lessons.length} lessons`);
+  }
+  driveLib = buildLibrary(driveLib.folder, driveLib.files, driveLib);
+  saveLibrary(driveLib); render();
+  const read = Object.values(driveLib.headings || {}).filter((h) => h.sections.length).length;
+  toast(updated.length ? `Lesson names updated from the PDFs (${updated.join(", ")}).` : read ? "Lesson names already match the PDFs' titles." : "No numbered titles (6.1, 9.2 …) found in the PDFs. Use Edit names to set them.");
 }
 function editChapterModal(chapterId) {
   const c = chapterById(chapterId);
@@ -283,7 +303,7 @@ function bind(){
   else if(a==="drive-disconnect"){drive?.disconnect();driveLib=null;saveLibrary(null);render();toast("Google Drive folder unlinked from KBM.");}
   else if(a==="open-lesson"){state.lessonId=b.dataset.lesson;state.viewFileId=null;go("lesson");}
   else if(a==="lesson-add-file") linkFileModal(state.lessonId);
-  else if(a==="sync-chapter") syncChapterFromPdf(b.dataset.chapter, chapterFiles(driveLib,b.dataset.chapter).find(isPdf));
+  else if(a==="sync-chapter") readPdfTitles({force:true,chapters:[b.dataset.chapter]});
   else if(a==="edit-chapter") editChapterModal(b.dataset.chapter);
   else if(a==="reset-chapter"){resetChapter(b.dataset.chapter);if(driveLib){driveLib=buildLibrary(driveLib.folder,driveLib.files,driveLib);saveLibrary(driveLib);}render();toast("Lesson names reset to the Cracking Chemistry defaults.");}
   else if(a==="preview-file") previewFile(b.dataset.file);
@@ -303,8 +323,8 @@ function bind(){
   else if(a==="profile-settings"||a==="notifications")toast("This preference is not available in the demo yet.");
  }));
  document.querySelectorAll("[data-assign]").forEach(s=>s.addEventListener("change",()=>{setLink(driveLib,s.dataset.assign,s.value);saveLibrary(driveLib);render();toast(s.value?`Linked to ${targetLabel(s.value)}.`:"File unlinked.");
-  // Choosing a PDF as the whole-chapter file updates that chapter's lesson names from it.
-  const f=driveLib.files.find(x=>x.id===s.dataset.assign);if(chapterById(s.value)&&f&&isPdf(f))syncChapterFromPdf(s.value,f);}));
+  // Choosing a PDF as the whole-chapter file updates that chapter's lesson names from its headings.
+  const f=driveLib.files.find(x=>x.id===s.dataset.assign);if(chapterById(s.value)&&f&&isPdf(f))readPdfTitles();}));
  document.querySelectorAll("[data-class-tab]").forEach(b=>b.addEventListener("click",()=>{state.selectedClass=b.dataset.classTab;render();}));
  document.querySelectorAll("[data-task-filter]").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll("[data-task-filter]").forEach(x=>x.classList.toggle("active",x===b));toast(b.dataset.taskFilter==="review"?"Showing submissions to review.":"Assignment list updated.");}));
  document.querySelectorAll(".remove-row").forEach(b=>b.addEventListener("click",()=>{b.closest(".editable-row,.question-row")?.remove();}));

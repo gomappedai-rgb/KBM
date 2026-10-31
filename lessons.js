@@ -124,17 +124,72 @@ export function saveLibrary(lib) {
   else localStorage.removeItem(KEY);
 }
 
-// Merge a fresh folder scan with the previous mapping: keep the links the teacher set by hand,
-// and (re)match every other file automatically.
+// ---------- titles read from the PDFs ----------
+// lib.headings[fileId] = { modifiedTime, sections: [{ chapter, n, title, size }] } (from pdf-sections.js)
+
+// What a PDF's own headings say about it: the headings in its largest font are its own titles;
+// smaller numbered lines are mentions or contents entries.
+//  - one such heading ("6.1 The Nuclear Atom")   -> { kind: "lesson", chapter, n, title }
+//  - several in one chapter (a whole chapter PDF) -> { kind: "chapter", chapter, sections }
+export function classifyHeadings(sections) {
+  if (!sections?.length) return null;
+  const max = Math.max(...sections.map((s) => s.size || 0));
+  const primary = sections.filter((s) => (s.size || 0) >= max * 0.85);
+  const byChapter = {};
+  for (const s of primary) (byChapter[s.chapter] ||= []).push(s);
+  const [chapter, list] = Object.entries(byChapter).sort((a, b) => b[1].length - a[1].length)[0];
+  if (list.length >= 2) return { kind: "chapter", chapter: +chapter, sections: list };
+  return { kind: "lesson", chapter: +chapter, n: list[0].n, title: list[0].title };
+}
+
+const headingTarget = (k) => (!k ? "" : k.kind === "lesson" ? `${k.chapter}.${k.n}` : `ch${k.chapter}`);
+
+// Lesson names for one chapter from the PDFs: the sections of its whole-chapter PDF (else the
+// default lessons), with each lesson PDF's own title put on its lesson number.
+// Returns { lessons, source } or null when no PDF gave a title for this chapter.
+export function planFromPdfs(lib, chapterId) {
+  const c = DEFAULT_CHAPTERS.find((x) => x.id === chapterId);
+  if (!lib?.headings || !c) return null;
+  const read = lib.files
+    .filter((f) => lib.headings[f.id]?.sections?.length)
+    .map((f) => ({ f, all: lib.headings[f.id].sections.filter((s) => s.chapter === c.number), k: classifyHeadings(lib.headings[f.id].sections) }))
+    .filter((x) => x.all.length);
+  // Whole-chapter PDF: one whose headings span the chapter, or one linked to the chapter (by name or by hand).
+  const whole = read.find((x) => x.k?.kind === "chapter" && x.k.chapter === c.number)
+    || read.find((x) => lib.map[x.f.id] === chapterId && x.all.length >= 2);
+  const sections = whole ? (whole.k?.kind === "chapter" ? whole.k.sections : whole.all) : null;
+  const singles = read.filter((x) => x !== whole && x.k?.kind === "lesson" && x.k.chapter === c.number);
+  if (!whole && !singles.length) return null;
+
+  const lessons = sections ? sections.map((s) => ({ id: `${c.number}.${s.n}`, title: s.title })) : c.lessons.map((l) => ({ id: l.id, title: l.title }));
+  for (const { k } of singles) {
+    const id = `${c.number}.${k.n}`, i = lessons.findIndex((l) => l.id === id);
+    if (i >= 0) lessons[i] = { id, title: k.title }; else lessons.push({ id, title: k.title });
+  }
+  lessons.sort((a, b) => +a.id.split(".")[1] - +b.id.split(".")[1]);
+  const names = [whole && `“${whole.f.name}”`, singles.length && `${singles.length} lesson PDF${singles.length > 1 ? "s" : ""}`].filter(Boolean);
+  return { lessons, source: { name: names.join(" and "), fileIds: [whole?.f.id, ...singles.map((x) => x.f.id)].filter(Boolean) } };
+}
+
+// Merge a fresh folder scan with the previous one: keep the links the teacher set by hand and the
+// titles already read from unchanged PDFs; (re)match every other file, by its own PDF title when
+// one was read, otherwise by its name and folder.
 export function buildLibrary(folder, files, previous) {
   const same = previous?.folder?.id === folder.id;
-  const oldMap = same ? previous.map || {} : {}, oldManual = same ? previous.manual || {} : {};
-  const map = {}, manual = {};
+  const oldMap = same ? previous.map || {} : {}, oldManual = same ? previous.manual || {} : {}, oldHeadings = same ? previous.headings || {} : {};
+  const map = {}, manual = {}, headings = {};
   for (const f of files) {
-    if (oldManual[f.id]) { map[f.id] = oldMap[f.id] ?? ""; manual[f.id] = true; }
-    else map[f.id] = suggestLesson(f);
+    if (oldHeadings[f.id]?.modifiedTime === f.modifiedTime) headings[f.id] = oldHeadings[f.id];
+    if (oldManual[f.id]) { map[f.id] = oldMap[f.id] ?? ""; manual[f.id] = true; continue; }
+    const fromTitle = headingTarget(classifyHeadings(headings[f.id]?.sections));
+    map[f.id] = isTarget(fromTitle) ? fromTitle : suggestLesson(f);
   }
-  return { folder, files, map, manual, scannedAt: new Date().toISOString() };
+  return { folder, files, map, manual, headings, scannedAt: new Date().toISOString() };
+}
+
+// PDFs whose titles haven't been read yet (or changed since).
+export function pdfsToRead(lib, force = false) {
+  return lib ? lib.files.filter((f) => (f.mimeType === PDF || /\.pdf$/i.test(f.name)) && (force || lib.headings?.[f.id]?.modifiedTime !== f.modifiedTime)) : [];
 }
 
 // The teacher links a file to a lesson / chapter ("" = unlink). Kept across rescans.

@@ -1,7 +1,7 @@
-// Reads the numbered sections ("9.1 …", "9.2 …") of a chapter PDF in the browser with pdf.js.
+// Reads numbered section headings ("6.1 …", "9.2 …") from a PDF in the browser with pdf.js.
 // 1) PDF bookmarks (outline), if they contain numbered sections;
 // 2) otherwise the page text: for each section number, the occurrence in the largest font
-//    (the heading, rather than its line in the table of contents).
+//    (the heading, rather than its line in the table of contents or a mention in the text).
 const PDFJS = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
 const WORKER = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const MAX_PAGES = 80;
@@ -23,16 +23,16 @@ function cleanTitle(s) {
     .trim();
 }
 
-// "9.1 Shapes of Molecules" -> { n: 1, title: "Shapes of Molecules" } when the chapter is 9.
-function parseHeading(line, chapter) {
+// "9.1 Shapes of Molecules" -> { chapter: 9, n: 1, title: "Shapes of Molecules" } if 9 is one of `chapters`.
+function parseHeading(line, chapters) {
   const m = line.match(/^\s*(?:section\s+)?(\d{1,2})\s*\.\s*(\d{1,2})(?![.\d])\s*[:.)\-–—]?\s+(.+)$/i);
-  if (!m || +m[1] !== chapter) return null;
+  if (!m || !chapters.includes(+m[1])) return null;
   const title = cleanTitle(m[3]);
   if (title.length < 3 || title.length > 100) return null;
   if (!/^[A-Z(“"']/.test(title)) return null; // headings start with a capital ("9.1 g of salt" is not one)
   if (/^(figure|fig\.|table|graph|diagram)\b/i.test(title)) return null;
   if ((title.match(/[a-z]/gi) || []).length < 3) return null;
-  return { n: +m[2], title };
+  return { chapter: +m[1], n: +m[2], title };
 }
 
 // Text lines of one page, rebuilt from pdf.js text items (same baseline, left to right).
@@ -64,37 +64,37 @@ function flattenOutline(items, out = []) {
   return out;
 }
 
-const sortByNumber = (map) => [...map.values()].sort((a, b) => a.n - b.n);
+const byNumber = (a, b) => a.chapter - b.chapter || a.n - b.n;
 
-// Returns [{ n, title }] sorted by section number (n is the part after the dot).
-export async function extractSections(data, chapter) {
+// All numbered headings of the given chapters: [{ chapter, n, title, size }], sorted.
+// `size` is the font size of the heading (all 1 when read from bookmarks).
+export async function readHeadings(data, chapters) {
   const pdfjs = await loadPdfJs();
   const pdf = await pdfjs.getDocument({ data, isEvalSupported: false }).promise;
   try {
     const fromOutline = new Map();
     for (const t of flattenOutline(await pdf.getOutline().catch(() => null))) {
-      const h = parseHeading(t, chapter);
-      if (h && !fromOutline.has(h.n)) fromOutline.set(h.n, h);
+      const h = parseHeading(t, chapters);
+      if (h && !fromOutline.has(`${h.chapter}.${h.n}`)) fromOutline.set(`${h.chapter}.${h.n}`, { ...h, size: 1 });
     }
-    if (fromOutline.size >= 2) return sortByNumber(fromOutline);
+    if (fromOutline.size) return [...fromOutline.values()].sort(byNumber);
 
-    const best = new Map(); // n -> { n, title, size }
+    const best = new Map();
     const pages = Math.min(pdf.numPages, MAX_PAGES);
     for (let p = 1; p <= pages; p++) {
       const page = await pdf.getPage(p);
       const lines = pageLines((await page.getTextContent()).items);
       lines.forEach((line, i) => {
-        let h = parseHeading(line.text, chapter);
+        let h = parseHeading(line.text, chapters);
         // Number on its own line, title on the next one.
-        if (!h && new RegExp(`^${chapter}\\s*\\.\\s*\\d{1,2}$`).test(line.text) && lines[i + 1])
-          h = parseHeading(`${line.text} ${lines[i + 1].text}`, chapter);
+        if (!h && /^\d{1,2}\s*\.\s*\d{1,2}$/.test(line.text) && lines[i + 1]) h = parseHeading(`${line.text} ${lines[i + 1].text}`, chapters);
         if (!h) return;
-        const cur = best.get(h.n);
-        if (!cur || line.size > cur.size + 0.5) best.set(h.n, { ...h, size: line.size });
+        const key = `${h.chapter}.${h.n}`, cur = best.get(key);
+        if (!cur || line.size > cur.size + 0.5) best.set(key, { ...h, size: Math.round(line.size * 10) / 10 });
       });
       page.cleanup();
     }
-    return best.size >= 2 ? sortByNumber(best).map(({ n, title }) => ({ n, title })) : [];
+    return [...best.values()].sort(byNumber);
   } finally {
     pdf.destroy();
   }
