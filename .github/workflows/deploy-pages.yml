@@ -25,6 +25,11 @@ jobs:
         uses: actions/checkout@v6
       - name: Configure Pages
         uses: actions/configure-pages@v5
+      - name: Stamp asset versions
+        # Turns ?v=__BUILD__ in index.html into ?v=<commit>, so every deploy busts the browser cache.
+        run: |
+          sed -i "s/__BUILD__/${GITHUB_SHA::7}/g" index.html
+          grep -c "?v=${GITHUB_SHA::7}" index.html
       - name: Upload static site
         uses: actions/upload-pages-artifact@v4
         with:

@@ -8,10 +8,23 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css" />
+  <!-- ?v=__BUILD__ is replaced with the commit id when GitHub Pages deploys (see .github/workflows),
+       so a browser never mixes files from two versions. Add new local modules to the import map. -->
+  <link rel="stylesheet" href="styles.css?v=__BUILD__" />
+  <script type="importmap">
+    {
+      "imports": {
+        "./graph.js": "./graph.js?v=__BUILD__",
+        "./drive.js": "./drive.js?v=__BUILD__",
+        "./lessons.js": "./lessons.js?v=__BUILD__",
+        "./pdf-sections.js": "./pdf-sections.js?v=__BUILD__",
+        "./classroom.js": "./classroom.js?v=__BUILD__"
+      }
+    }
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3/lib/msal-browser.min.js"></script>
   <script src="https://accounts.google.com/gsi/client" defer></script>
-  <script src="config.js"></script>
+  <script src="config.js?v=__BUILD__"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -41,7 +54,7 @@
   </div>
   <div id="toast" class="toast" role="status" hidden></div>
   <div id="modal-root"></div>
-  <script type="module" src="app.js"></script>
-  <script type="module" src="classroom-ui.js"></script>
+  <script type="module" src="app.js?v=__BUILD__"></script>
+  <script type="module" src="classroom-ui.js?v=__BUILD__"></script>
 </body>
 </html>
